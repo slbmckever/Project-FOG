@@ -1,0 +1,66 @@
+=========================================
+        GARDEN STATE GREASE SERVICES
+           123 Industrial Parkway
+          Newark, NJ 07102
+          Phone: (973) 555-0147
+          License #: NJ-GT-2024-0892
+=========================================
+
+INVOICE #: GS-2024-003471
+DATE: January 8, 2026
+
+BILL TO:
+  Tony's Ristorante
+  Attn: Anthony Morello
+  847 Bloomfield Avenue
+  Montclair, NJ 07042
+
+SERVICE LOCATION:
+  Same as above
+
+-----------------------------------------
+SERVICE DETAILS
+-----------------------------------------
+Service Date:      January 8, 2026
+Arrival Time:      6:15 AM
+Departure Time:    7:02 AM
+
+Trap Location:     Kitchen - rear exterior
+Trap Size:         1,500 gallons
+Gallons Pumped:    1,320 gallons
+Waste Type:        FOG (Fats, Oils, Grease)
+
+Technician:        Marcus Williams
+Truck #:           GS-17
+Manifest #:        NJ-2026-0108-0023
+
+-----------------------------------------
+DISPOSAL INFORMATION
+-----------------------------------------
+Disposal Facility: Essex County Regional
+                   Wastewater Treatment
+                   400 River Road
+                   Newark, NJ 07104
+Disposal Date:     January 8, 2026
+
+-----------------------------------------
+CHARGES
+-----------------------------------------
+Grease Trap Pumping (1,500 gal unit)    $385.00
+Disposal Fee (1,320 gal @ $0.12/gal)     $158.40
+Environmental Compliance Fee              $25.00
+-----------------------------------------
+                          SUBTOTAL:      $568.40
+                          NJ Sales Tax:    $0.00
+                          -----------------------
+                          TOTAL DUE:     $568.40
+
+PAYMENT TERMS: Net 30
+DUE DATE: February 7, 2026
+
+-----------------------------------------
+Thank you for choosing Garden State Grease Services!
+Next recommended service: April 2026
+
+For questions, contact billing@gsgreasenj.com
+=========================================

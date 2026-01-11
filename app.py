@@ -7,6 +7,7 @@ import json
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
+from uuid import UUID
 
 import pandas as pd
 import streamlit as st
@@ -811,9 +812,9 @@ def page_jobs():
         with col2:
             st.write(job.customer_name or "—")
         with col3:
-            st.write(job.service_date or "—")
+            st.write(job.get_service_date_display())
         with col4:
-            st.write(job.invoice_total or "—")
+            st.write(job.get_invoice_total_display())
         with col5:
             status_class = get_status_class(job.status.value)
             st.markdown(
@@ -875,18 +876,38 @@ def page_new_job():
             if not invoice_number:
                 st.error("Invoice number is required")
             else:
+                # Parse typed values from string inputs
+                gallons_float = None
+                if gallons_pumped:
+                    try:
+                        val = gallons_pumped.lower().replace("gallons", "").replace("gal", "").replace(",", "").strip()
+                        gallons_float = float(val)
+                    except ValueError:
+                        pass
+
+                invoice_cents = None
+                if invoice_total:
+                    try:
+                        val = invoice_total.replace("$", "").replace(",", "").strip()
+                        invoice_cents = int(float(val) * 100)
+                    except ValueError:
+                        pass
+
                 job = Job(
-                    customer_id=selected_customer if selected_customer else None,
+                    customer_id=UUID(selected_customer) if selected_customer else None,
                     invoice_number=invoice_number,
-                    service_date=str(service_date),
+                    service_date=service_date,  # date object from st.date_input
+                    service_date_str=str(service_date),
                     customer_name=customer_name or None,
                     customer_address=customer_address or None,
                     technician=technician or None,
                     truck_id=truck_id or None,
-                    gallons_pumped=gallons_pumped or None,
+                    gallons_pumped=gallons_float,
+                    gallons_pumped_str=gallons_pumped or None,
                     trap_size=trap_size or None,
                     disposal_facility=disposal_facility or None,
-                    invoice_total=invoice_total or None,
+                    invoice_total_cents=invoice_cents,
+                    invoice_total_str=invoice_total or None,
                     manifest_number=manifest_number or None,
                     notes=notes or None,
                     status=JobStatus(status),
@@ -1138,7 +1159,7 @@ def _render_job_view(job: Job):
 
     with col1:
         st.markdown("**Service Information**")
-        st.write(f"Date: {job.service_date or '—'}")
+        st.write(f"Date: {job.get_service_date_display()}")
         st.write(f"Customer: {job.customer_name or '—'}")
         st.write(f"Address: {job.customer_address or '—'}")
         st.write(f"Phone: {job.phone or '—'}")
@@ -1148,9 +1169,9 @@ def _render_job_view(job: Job):
     with col2:
         st.markdown("**Job Details**")
         st.write(f"Trap Size: {job.trap_size or '—'}")
-        st.write(f"Gallons Pumped: {job.gallons_pumped or '—'}")
+        st.write(f"Gallons Pumped: {job.get_gallons_display()}")
         st.write(f"Disposal Facility: {job.disposal_facility or '—'}")
-        st.write(f"Invoice Total: {job.invoice_total or '—'}")
+        st.write(f"Invoice Total: {job.get_invoice_total_display()}")
         st.write(f"Manifest #: {job.manifest_number or '—'}")
 
     if job.notes:
@@ -1212,6 +1233,11 @@ def _render_job_view(job: Job):
 
 def _render_job_edit_form(job: Job):
     """Render job edit form."""
+    # Get string values for display in form
+    service_date_val = job.service_date_str or (job.service_date.isoformat() if job.service_date else "")
+    gallons_val = job.gallons_pumped_str or (f"{job.gallons_pumped:,.0f}" if job.gallons_pumped else "")
+    invoice_val = job.invoice_total_str or (f"${job.invoice_total_cents/100:,.2f}" if job.invoice_total_cents else "")
+
     with st.form("edit_job_form"):
         col1, col2 = st.columns(2)
 
@@ -1219,7 +1245,7 @@ def _render_job_edit_form(job: Job):
             invoice_number = st.text_input(
                 "Invoice Number *", value=job.invoice_number or ""
             )
-            service_date = st.text_input("Service Date *", value=job.service_date or "")
+            service_date = st.text_input("Service Date *", value=service_date_val)
             customer_name = st.text_input(
                 "Customer Name *", value=job.customer_name or ""
             )
@@ -1231,15 +1257,11 @@ def _render_job_edit_form(job: Job):
 
         with col2:
             trap_size = st.text_input("Trap Size", value=job.trap_size or "")
-            gallons_pumped = st.text_input(
-                "Gallons Pumped", value=job.gallons_pumped or ""
-            )
+            gallons_pumped = st.text_input("Gallons Pumped", value=gallons_val)
             disposal_facility = st.text_input(
                 "Disposal Facility", value=job.disposal_facility or ""
             )
-            invoice_total = st.text_input(
-                "Invoice Total", value=job.invoice_total or ""
-            )
+            invoice_total = st.text_input("Invoice Total", value=invoice_val)
             manifest_number = st.text_input(
                 "Manifest #", value=job.manifest_number or ""
             )
@@ -1252,6 +1274,8 @@ def _render_job_edit_form(job: Job):
         status = st.selectbox("Status", status_options, index=current_idx)
 
         if st.form_submit_button("Save Changes", use_container_width=True):
+            # The update_job function will handle string values in the database
+            # which will be parsed back to typed values on load
             update_job(
                 job.job_id,
                 {

@@ -38,3 +38,6 @@ htmlcov/
 
 # OS
 .DS_Store
+
+# Database
+data/

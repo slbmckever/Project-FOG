@@ -86,17 +86,19 @@ class TestSaveAndLoadJob:
 
     def test_save_preserves_all_fields(self, temp_db):
         """All job fields are saved and loaded correctly."""
+        from datetime import date
+
         job = Job(
             invoice_number="FULL-001",
-            service_date="2026-01-15",
+            service_date=date(2026, 1, 15),
             customer_name="Full Test Co",
             customer_address="123 Main St, City, ST 12345",
             phone="555-123-4567",
             trap_size="1,500 gallons",
-            gallons_pumped="1,200 gallons",
+            gallons_pumped=1200.0,
             technician="John Smith",
             disposal_facility="City Treatment Plant",
-            invoice_total="$500.00",
+            invoice_total_cents=50000,  # $500.00 in cents
             notes="Test notes",
             source_filename="test.txt",
             confidence_score=85,
@@ -108,15 +110,15 @@ class TestSaveAndLoadJob:
         loaded = load_job(job.job_id, temp_db)
 
         assert loaded.invoice_number == "FULL-001"
-        assert loaded.service_date == "2026-01-15"
+        assert loaded.service_date == date(2026, 1, 15)
         assert loaded.customer_name == "Full Test Co"
         assert loaded.customer_address == "123 Main St, City, ST 12345"
         assert loaded.phone == "555-123-4567"
         assert loaded.trap_size == "1,500 gallons"
-        assert loaded.gallons_pumped == "1,200 gallons"
+        assert loaded.gallons_pumped == 1200.0
         assert loaded.technician == "John Smith"
         assert loaded.disposal_facility == "City Treatment Plant"
-        assert loaded.invoice_total == "$500.00"
+        assert loaded.invoice_total_cents == 50000  # $500.00
         assert loaded.notes == "Test notes"
         assert loaded.source_filename == "test.txt"
         assert loaded.confidence_score == 85
@@ -299,15 +301,18 @@ class TestJobModel:
         job = Job.from_parse_result(result, source_filename="test.txt")
 
         assert job.invoice_number == "TEST-001"
-        assert job.invoice_total == "$100.00"
+        assert job.invoice_total_str == "$100.00"
+        assert job.invoice_total_cents == 10000  # $100.00 in cents
         assert job.source_filename == "test.txt"
         assert job.status == JobStatus.DRAFT
 
     def test_can_verify_with_required_fields(self):
         """Job can be verified when required fields are present."""
+        from datetime import date
+
         job = Job(
             invoice_number="TEST-001",
-            service_date="2026-01-01",
+            service_date=date(2026, 1, 1),
             customer_name="Test Customer",
         )
         assert job.can_verify() is True
@@ -483,8 +488,9 @@ class TestSiteCRUD:
             address="123 Main St",
             city="Chicago",
             state="IL",
-            trap_type="Interior",
-            trap_size="1,500 gallons",
+            municipality="Chicago",
+            sewer_authority="MWRD",
+            permit_number="FOG-12345",
             service_frequency=ServiceFrequency.MONTHLY,
         )
 
@@ -494,8 +500,9 @@ class TestSiteCRUD:
         loaded = get_site(site.site_id, temp_db)
         assert loaded is not None
         assert loaded.name == "Main Kitchen"
-        assert loaded.trap_type == "Interior"
-        assert loaded.trap_size == "1,500 gallons"
+        assert loaded.municipality == "Chicago"
+        assert loaded.sewer_authority == "MWRD"
+        assert loaded.permit_number == "FOG-12345"
         assert loaded.service_frequency == ServiceFrequency.MONTHLY
 
     def test_get_nonexistent_site(self, temp_db):
@@ -551,14 +558,16 @@ class TestSiteCRUD:
 class TestAnalytics:
     def test_get_dashboard_kpis(self, temp_db):
         """Get dashboard KPIs."""
+        from datetime import date
+
         # Create test data
         save_job(
             Job(
                 invoice_number="A",
                 status=JobStatus.COMPLETED,
-                invoice_total="$500.00",
-                gallons_pumped="1,200 gallons",
-                service_date="2026-01-10",
+                invoice_total_cents=50000,  # $500.00
+                gallons_pumped=1200.0,
+                service_date=date(2026, 1, 10),
             ),
             temp_db,
         )
@@ -566,7 +575,7 @@ class TestAnalytics:
             Job(
                 invoice_number="B",
                 status=JobStatus.SCHEDULED,
-                service_date="2026-01-15",
+                service_date=date(2026, 1, 15),
             ),
             temp_db,
         )
@@ -584,12 +593,14 @@ class TestAnalytics:
 
     def test_get_dashboard_kpis_with_date_filter(self, temp_db):
         """KPIs can be filtered by date range."""
+        from datetime import date
+
         save_job(
             Job(
                 invoice_number="A",
                 status=JobStatus.COMPLETED,
-                invoice_total="$100.00",
-                service_date="2026-01-01",
+                invoice_total_cents=10000,  # $100.00
+                service_date=date(2026, 1, 1),
             ),
             temp_db,
         )
@@ -597,8 +608,8 @@ class TestAnalytics:
             Job(
                 invoice_number="B",
                 status=JobStatus.COMPLETED,
-                invoice_total="$200.00",
-                service_date="2026-01-15",
+                invoice_total_cents=20000,  # $200.00
+                service_date=date(2026, 1, 15),
             ),
             temp_db,
         )
@@ -612,9 +623,11 @@ class TestAnalytics:
 
     def test_get_jobs_by_date(self, temp_db):
         """Get job counts by date."""
-        save_job(Job(invoice_number="A", service_date="2026-01-10"), temp_db)
-        save_job(Job(invoice_number="B", service_date="2026-01-10"), temp_db)
-        save_job(Job(invoice_number="C", service_date="2026-01-11"), temp_db)
+        from datetime import date
+
+        save_job(Job(invoice_number="A", service_date=date(2026, 1, 10)), temp_db)
+        save_job(Job(invoice_number="B", service_date=date(2026, 1, 10)), temp_db)
+        save_job(Job(invoice_number="C", service_date=date(2026, 1, 11)), temp_db)
 
         result = get_jobs_by_date("2026-01-01", "2026-01-31", db_path=temp_db)
 
@@ -660,19 +673,21 @@ class TestAnalytics:
 
     def test_get_revenue_by_date(self, temp_db):
         """Get revenue totals by date."""
+        from datetime import date
+
         save_job(
             Job(
                 invoice_number="A",
-                service_date="2026-01-10",
-                invoice_total="$100.00",
+                service_date=date(2026, 1, 10),
+                invoice_total_cents=10000,  # $100.00
             ),
             temp_db,
         )
         save_job(
             Job(
                 invoice_number="B",
-                service_date="2026-01-10",
-                invoice_total="$200.00",
+                service_date=date(2026, 1, 10),
+                invoice_total_cents=20000,  # $200.00
             ),
             temp_db,
         )
@@ -689,7 +704,7 @@ class TestAnalytics:
             Job(
                 invoice_number="A",
                 customer_name="Big Spender",
-                invoice_total="$1,000.00",
+                invoice_total_cents=100000,  # $1,000.00
             ),
             temp_db,
         )
@@ -697,7 +712,7 @@ class TestAnalytics:
             Job(
                 invoice_number="B",
                 customer_name="Big Spender",
-                invoice_total="$500.00",
+                invoice_total_cents=50000,  # $500.00
             ),
             temp_db,
         )
@@ -705,7 +720,7 @@ class TestAnalytics:
             Job(
                 invoice_number="C",
                 customer_name="Small Customer",
-                invoice_total="$100.00",
+                invoice_total_cents=10000,  # $100.00
             ),
             temp_db,
         )
@@ -731,9 +746,11 @@ class TestJobsExtended:
 
     def test_list_jobs_by_date_range(self, temp_db):
         """Filter jobs by date range."""
-        save_job(Job(invoice_number="A", service_date="2026-01-05"), temp_db)
-        save_job(Job(invoice_number="B", service_date="2026-01-15"), temp_db)
-        save_job(Job(invoice_number="C", service_date="2026-01-25"), temp_db)
+        from datetime import date
+
+        save_job(Job(invoice_number="A", service_date=date(2026, 1, 5)), temp_db)
+        save_job(Job(invoice_number="B", service_date=date(2026, 1, 15)), temp_db)
+        save_job(Job(invoice_number="C", service_date=date(2026, 1, 25)), temp_db)
 
         mid_jobs = list_jobs(
             date_from="2026-01-10", date_to="2026-01-20", db_path=temp_db

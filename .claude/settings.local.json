@@ -2,7 +2,18 @@
   "permissions": {
     "allow": [
       "Bash(source .venv/bin/activate)",
-      "Bash(trap:*)"
+      "Bash(trap:*)",
+      "Bash(brew install:*)",
+      "Bash(git remote set-url:*)",
+      "Bash(git push:*)",
+      "Bash(gh auth:*)",
+      "Bash(gh repo list:*)",
+      "Bash(python:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(pytest:*)",
+      "Bash(ruff check:*)",
+      "Bash(ruff format:*)"
     ]
   }
 }

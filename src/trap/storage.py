@@ -63,6 +63,45 @@ def get_connection(db_path: Path | None = None):
 
 
 # =============================================================================
+# DATABASE MIGRATIONS
+# =============================================================================
+
+
+def _migrate_sites_table(conn: sqlite3.Connection) -> None:
+    """Add new columns to sites table if they don't exist."""
+    cursor = conn.execute("PRAGMA table_info(sites)")
+    existing_columns = {row[1] for row in cursor.fetchall()}
+
+    migrations = [
+        ("municipality", "TEXT"),
+        ("sewer_authority", "TEXT"),
+        ("permit_number", "TEXT"),
+        ("access_notes", "TEXT"),
+    ]
+
+    for col_name, col_type in migrations:
+        if col_name not in existing_columns:
+            conn.execute(f"ALTER TABLE sites ADD COLUMN {col_name} {col_type}")
+
+
+def _migrate_jobs_table(conn: sqlite3.Connection) -> None:
+    """Add new columns to jobs table if they don't exist."""
+    cursor = conn.execute("PRAGMA table_info(jobs)")
+    existing_columns = {row[1] for row in cursor.fetchall()}
+
+    migrations = [
+        ("asset_id", "TEXT"),
+        ("gallons_pumped_float", "REAL"),
+        ("invoice_total_cents", "INTEGER"),
+        ("service_date_typed", "TEXT"),
+    ]
+
+    for col_name, col_type in migrations:
+        if col_name not in existing_columns:
+            conn.execute(f"ALTER TABLE jobs ADD COLUMN {col_name} {col_type}")
+
+
+# =============================================================================
 # DATABASE INITIALIZATION
 # =============================================================================
 
@@ -90,7 +129,7 @@ def init_db(db_path: Path | None = None) -> None:
             )
         """)
 
-        # Sites table
+        # Sites table (enhanced with regulatory/compliance fields)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS sites (
                 site_id TEXT PRIMARY KEY,
@@ -100,13 +139,14 @@ def init_db(db_path: Path | None = None) -> None:
                 city TEXT,
                 state TEXT,
                 zip_code TEXT,
-                trap_type TEXT,
-                trap_size TEXT,
-                trap_location TEXT,
+                municipality TEXT,
+                sewer_authority TEXT,
+                permit_number TEXT,
                 service_frequency TEXT,
                 service_frequency_days INTEGER,
                 last_service_date TEXT,
                 next_service_date TEXT,
+                access_notes TEXT,
                 notes TEXT,
                 is_active INTEGER DEFAULT 1,
                 created_at TEXT NOT NULL,
@@ -114,6 +154,9 @@ def init_db(db_path: Path | None = None) -> None:
                 FOREIGN KEY (customer_id) REFERENCES customers(customer_id)
             )
         """)
+
+        # Add new columns if they don't exist (migration)
+        _migrate_sites_table(conn)
 
         # Jobs table (extended from original)
         conn.execute("""
@@ -146,6 +189,9 @@ def init_db(db_path: Path | None = None) -> None:
                 FOREIGN KEY (site_id) REFERENCES sites(site_id)
             )
         """)
+
+        # Add new columns if they don't exist (migration)
+        _migrate_jobs_table(conn)
 
         # Documents table
         conn.execute("""
@@ -338,12 +384,32 @@ def count_customers(active_only: bool = True, db_path: Path | None = None) -> in
 
 def _row_to_site(row: sqlite3.Row) -> Site:
     """Convert a database row to a Site object."""
+    from datetime import date as date_type
+
     freq = None
     if row["service_frequency"]:
         try:
             freq = ServiceFrequency(row["service_frequency"])
         except ValueError:
             pass
+
+    # Helper to safely get column (for migration compatibility)
+    def safe_get(col: str) -> str | None:
+        try:
+            return row[col]
+        except (IndexError, KeyError):
+            return None
+
+    # Parse dates as date objects
+    last_service = None
+    if row["last_service_date"]:
+        dt = datetime.fromisoformat(row["last_service_date"])
+        last_service = dt.date() if hasattr(dt, "date") else dt
+
+    next_service = None
+    if row["next_service_date"]:
+        dt = datetime.fromisoformat(row["next_service_date"])
+        next_service = dt.date() if hasattr(dt, "date") else dt
 
     return Site(
         site_id=UUID(row["site_id"]),
@@ -353,21 +419,14 @@ def _row_to_site(row: sqlite3.Row) -> Site:
         city=row["city"],
         state=row["state"],
         zip_code=row["zip_code"],
-        trap_type=row["trap_type"],
-        trap_size=row["trap_size"],
-        trap_location=row["trap_location"],
+        municipality=safe_get("municipality"),
+        sewer_authority=safe_get("sewer_authority"),
+        permit_number=safe_get("permit_number"),
         service_frequency=freq,
         service_frequency_days=row["service_frequency_days"],
-        last_service_date=(
-            datetime.fromisoformat(row["last_service_date"])
-            if row["last_service_date"]
-            else None
-        ),
-        next_service_date=(
-            datetime.fromisoformat(row["next_service_date"])
-            if row["next_service_date"]
-            else None
-        ),
+        last_service_date=last_service,
+        next_service_date=next_service,
+        access_notes=safe_get("access_notes"),
         notes=row["notes"],
         is_active=bool(row["is_active"]),
         created_at=datetime.fromisoformat(row["created_at"]),
@@ -384,10 +443,11 @@ def save_site(site: Site, db_path: Path | None = None) -> Site:
             """
             INSERT OR REPLACE INTO sites (
                 site_id, customer_id, name, address, city, state, zip_code,
-                trap_type, trap_size, trap_location, service_frequency,
-                service_frequency_days, last_service_date, next_service_date,
-                notes, is_active, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                municipality, sewer_authority, permit_number,
+                service_frequency, service_frequency_days,
+                last_service_date, next_service_date,
+                access_notes, notes, is_active, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 str(site.site_id),
@@ -397,13 +457,14 @@ def save_site(site: Site, db_path: Path | None = None) -> Site:
                 site.city,
                 site.state,
                 site.zip_code,
-                site.trap_type,
-                site.trap_size,
-                site.trap_location,
+                site.municipality,
+                site.sewer_authority,
+                site.permit_number,
                 site.service_frequency.value if site.service_frequency else None,
                 site.service_frequency_days,
                 site.last_service_date.isoformat() if site.last_service_date else None,
                 site.next_service_date.isoformat() if site.next_service_date else None,
+                site.access_notes,
                 site.notes,
                 1 if site.is_active else 0,
                 site.created_at.isoformat(),
@@ -486,17 +547,63 @@ def count_sites(active_only: bool = True, db_path: Path | None = None) -> int:
 
 def _row_to_job(row: sqlite3.Row) -> Job:
     """Convert a database row to a Job object."""
+    from datetime import date as date_type
+
+    # Helper to safely get column (for migration compatibility)
+    def safe_get(col: str):
+        try:
+            return row[col]
+        except (IndexError, KeyError):
+            return None
+
+    # Parse scheduled_date as date
+    scheduled = None
+    if row["scheduled_date"]:
+        dt = datetime.fromisoformat(row["scheduled_date"])
+        scheduled = dt.date() if hasattr(dt, "date") else dt
+
+    # Parse service_date as date
+    service_dt = None
+    service_str = row["service_date"]
+    if service_str:
+        try:
+            dt = datetime.fromisoformat(service_str)
+            service_dt = dt.date() if hasattr(dt, "date") else dt
+        except ValueError:
+            # Keep as string in service_date_str
+            pass
+
+    # Parse gallons
+    gallons_str = row["gallons_pumped"]
+    gallons_float = None
+    if gallons_str:
+        try:
+            val = gallons_str.lower().replace("gallons", "").replace("gal", "")
+            val = val.replace(",", "").strip()
+            gallons_float = float(val)
+        except (ValueError, AttributeError):
+            pass
+
+    # Parse invoice total
+    invoice_str = row["invoice_total"]
+    invoice_cents = None
+    if invoice_str:
+        try:
+            val = invoice_str.replace("$", "").replace(",", "").strip()
+            invoice_cents = int(float(val) * 100)
+        except (ValueError, AttributeError):
+            pass
+
     return Job(
         job_id=UUID(row["job_id"]),
         customer_id=UUID(row["customer_id"]) if row["customer_id"] else None,
         site_id=UUID(row["site_id"]) if row["site_id"] else None,
+        asset_id=UUID(safe_get("asset_id")) if safe_get("asset_id") else None,
         created_at=datetime.fromisoformat(row["created_at"]),
         updated_at=datetime.fromisoformat(row["updated_at"]),
-        scheduled_date=(
-            datetime.fromisoformat(row["scheduled_date"])
-            if row["scheduled_date"]
-            else None
-        ),
+        scheduled_date=scheduled,
+        service_date=service_dt,
+        service_date_str=service_str,
         source_filename=row["source_filename"],
         confidence_score=row["confidence_score"] or 0,
         extracted_fields=(
@@ -508,16 +615,17 @@ def _row_to_job(row: sqlite3.Row) -> Job:
         status=JobStatus(row["status"]),
         invoice_number=row["invoice_number"],
         manifest_number=row["manifest_number"],
-        service_date=row["service_date"],
         customer_name=row["customer_name"],
         customer_address=row["customer_address"],
         phone=row["phone"],
         trap_size=row["trap_size"],
-        gallons_pumped=row["gallons_pumped"],
+        gallons_pumped=gallons_float,
+        gallons_pumped_str=gallons_str,
+        invoice_total_cents=invoice_cents,
+        invoice_total_str=invoice_str,
         technician=row["technician"],
         truck_id=row["truck_id"],
         disposal_facility=row["disposal_facility"],
-        invoice_total=row["invoice_total"],
         notes=row["notes"],
     )
 
@@ -525,6 +633,26 @@ def _row_to_job(row: sqlite3.Row) -> Job:
 def save_job(job: Job, db_path: Path | None = None) -> Job:
     """Save a job (insert or update)."""
     job.updated_at = datetime.now()
+
+    # Convert typed values to strings for database storage
+    # Prefer typed value, fall back to string value
+    service_date_db = None
+    if job.service_date:
+        service_date_db = job.service_date.isoformat()
+    elif job.service_date_str:
+        service_date_db = job.service_date_str
+
+    gallons_db = None
+    if job.gallons_pumped is not None:
+        gallons_db = f"{job.gallons_pumped:,.0f} gallons"
+    elif job.gallons_pumped_str:
+        gallons_db = job.gallons_pumped_str
+
+    invoice_db = None
+    if job.invoice_total_cents is not None:
+        invoice_db = f"${job.invoice_total_cents / 100:,.2f}"
+    elif job.invoice_total_str:
+        invoice_db = job.invoice_total_str
 
     with get_connection(db_path) as conn:
         conn.execute(
@@ -552,16 +680,16 @@ def save_job(job: Job, db_path: Path | None = None) -> Job:
                 job.status.value,
                 job.invoice_number,
                 job.manifest_number,
-                job.service_date,
+                service_date_db,
                 job.customer_name,
                 job.customer_address,
                 job.phone,
                 job.trap_size,
-                job.gallons_pumped,
+                gallons_db,
                 job.technician,
                 job.truck_id,
                 job.disposal_facility,
-                job.invoice_total,
+                invoice_db,
                 job.notes,
             ),
         )
@@ -901,11 +1029,11 @@ def get_dashboard_kpis(
                 except ValueError:
                     pass
 
-        kpis.total_revenue = total_revenue
+        kpis.total_revenue_cents = int(total_revenue * 100)
         kpis.total_gallons = total_gallons
 
         if job_count > 0:
-            kpis.avg_revenue_per_job = total_revenue / job_count
+            kpis.avg_revenue_per_job_cents = int((total_revenue / job_count) * 100)
             kpis.avg_gallons_per_job = total_gallons / job_count
 
         # Docs missing (jobs without invoice or manifest document)
